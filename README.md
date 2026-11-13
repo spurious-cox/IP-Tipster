@@ -1,11 +1,11 @@
-# DNSUpdater
+# IP Tipster
 
 Dynu Systems Inc. provides a free dynamic DNS service and update client.
-DNSUpdater is a small Mac app that keeps your hostname on that service pointed
+IP Tipster is a small Mac app that keeps your hostname on that service pointed
 at this Mac, and keeps a running log of every change to your IP address and to
 your VPN.
 
-Version 1.4.0 · macOS 12 or later · Intel and Apple silicon
+Version 1.5.0 · macOS 12 or later · Intel and Apple silicon
 
 ## What it does
 
@@ -27,7 +27,7 @@ Example log:
 
 ## Using it
 
-DNSUpdater has a Dock icon and a menu-bar icon. The menu-bar menu shows the
+IP Tipster has a Dock icon and a menu-bar icon. The menu-bar menu shows the
 current IP and the last check, and has:
 
 * **Update Now**
@@ -36,7 +36,7 @@ current IP and the last check, and has:
   the account), how often to check (1, 2, 5, 10, 15, 30 or 60 minutes), whether
   the log window opens at startup, and whether there is a Dock icon (off = menu
   bar only). Saving also reloads the background updater.
-* **Quit DNSUpdater**
+* **Quit IP Tipster**
 
 The log window has a **Hide** button; closing or hiding it does not quit the
 app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
@@ -55,8 +55,8 @@ app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
 ## How it works
 
 * The app itself starts at login (it is a login item). The checks are done by a
-  separate launch agent, `com.timmccoy.dnsupdater.agent`, which runs
-  `DNSUpdater --update` on a timer, so updates continue whether or not the app
+  separate launch agent, `com.timmccoy.iptipster.agent`, which runs
+  `IPTipster --update` on a timer, so updates continue whether or not the app
   is open.
 * VPN state is read from the system: a tunnel (`utun`) interface with an IPv4
   address means a VPN is up, whichever VPN service it is. Location and update
@@ -65,7 +65,7 @@ app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
 * The password is stored as an MD5 hash, which is what the service's update
   API accepts. IPv4 only.
 
-Files are in `~/Library/Application Support/DNSUpdater/`:
+Files are in `~/Library/Application Support/IP Tipster/`:
 
     config.json    username, password hash, hostname, interval (readable only by you)
     history.log    the IP log
@@ -79,12 +79,12 @@ Files are in `~/Library/Application Support/DNSUpdater/`:
 
 Modes of the one program:
 
-    DNSUpdater                  the menu-bar app
-    DNSUpdater --update         one headless update, as the launch agent runs it
-    DNSUpdater --install-agent  write and load the launch agent
+    IPTipster                    the menu-bar app
+    IPTipster --update           one headless update, as the launch agent runs it
+    IPTipster --install-agent    write and load the launch agent
 
 The source is `main.swift`; the icon is `AppIcon.icns`, made from
-`DNSUpdaterIcon.png`.
+`IPTipsterIcon.png`.
 
 © 2026 Tim McCoy. A personal utility, not published.
 Not affiliated with Dynu Systems Inc.

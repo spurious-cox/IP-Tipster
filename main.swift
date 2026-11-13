@@ -1,21 +1,21 @@
-// DNSUpdater 1.0.0 — keeps a Dynu dynamic-DNS hostname pointed at this Mac,
+// IP Tipster 1.0.0 — keeps a Dynu dynamic-DNS hostname pointed at this Mac,
 // and keeps a running transcript of every IP address change.
-//   DNSUpdater            menu-bar app: IP log, Update Now, Settings
-//   DNSUpdater --update   one headless update (what the launch agent runs)
-//   DNSUpdater --install-agent   write and load the launch agent
+//   IPTipster            menu-bar app: IP log, Update Now, Settings
+//   IPTipster --update   one headless update (what the launch agent runs)
+//   IPTipster --install-agent   write and load the launch agent
 import Cocoa
 import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.4.0"
+let appVersion = "1.5.0"
 let home = FileManager.default.homeDirectoryForCurrentUser
-let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
+let supportDir = home.appendingPathComponent("Library/Application Support/IP Tipster")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
 let configURL = supportDir.appendingPathComponent("config.json")
 let historyURL = supportDir.appendingPathComponent("history.log")
 let stateURL = supportDir.appendingPathComponent("state.json")
-let agentLabel = "com.timmccoy.dnsupdater.agent"
+let agentLabel = "com.timmccoy.iptipster.agent"
 let agentURL = home.appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist")
 let fm = FileManager.default
 
@@ -266,7 +266,7 @@ func runUpdateLocked() -> String {
     var req = URLRequest(url: comps.url!, timeoutInterval: 20)
     let auth = Data("\(cfg.username):\(cfg.passwordMD5)".utf8).base64EncodedString()
     req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
-    req.setValue("DNSUpdater/\(appVersion) (macOS)", forHTTPHeaderField: "User-Agent")
+    req.setValue("IPTipster/\(appVersion) (macOS)", forHTTPHeaderField: "User-Agent")
 
     var body = ""; var status = 0; var failed = false
     let sem = DispatchSemaphore(value: 0)
@@ -305,7 +305,7 @@ func runUpdateLocked() -> String {
 // MARK: launch agent
 
 func installAgent(minutes: Int) {
-    let exe = Bundle.main.executablePath ?? "/Applications/DNSUpdater.app/Contents/MacOS/DNSUpdater"
+    let exe = Bundle.main.executablePath ?? "/Applications/IP Tipster.app/Contents/MacOS/IPTipster"
     let plist: [String: Any] = [
         "Label": agentLabel,
         "ProgramArguments": [exe, "--update"],
@@ -341,7 +341,7 @@ final class LogWindow: NSObject {
                           styleMask: [.titled, .closable, .resizable, .miniaturizable],
                           backing: .buffered, defer: false)
         super.init()
-        window.title = "DNSUpdater — IP log"
+        window.title = "IP Tipster — IP log"
         window.minSize = NSSize(width: 340, height: 240)
         window.isReleasedWhenClosed = false
         window.center()
@@ -382,7 +382,7 @@ final class LogWindow: NSObject {
         return NSScreen.main ?? NSScreen.screens[0]
     }
 
-    static let frameKey = "DNSUpdaterLogFrame"
+    static let frameKey = "IPTipsterLogFrame"
 
     /// Where you left it: the saved frame, wherever that is, as long as it is
     /// still on a connected screen. The first time (or if that screen is gone)
@@ -468,7 +468,7 @@ final class SettingsWindow: NSObject {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 290),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
         super.init()
-        window.title = "DNSUpdater Settings"
+        window.title = "IP Tipster Settings"
         window.isReleasedWhenClosed = false
         func row(_ label: String, _ field: NSView, _ y: CGFloat) {
             let l = NSTextField(labelWithString: label)
@@ -539,7 +539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func watchNetwork() {
         var ctx = SCDynamicStoreContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
                                         retain: nil, release: nil, copyDescription: nil)
-        guard let st = SCDynamicStoreCreate(nil, "DNSUpdater" as CFString, { _, _, info in
+        guard let st = SCDynamicStoreCreate(nil, "IPTipster" as CFString, { _, _, info in
             guard let info = info else { return }
             let me = Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue()
             DispatchQueue.main.async {
@@ -564,7 +564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         watchNetwork()                       // brings DynuUpdater's settings and log across, once
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = item.button {
-            if let img = NSImage(systemSymbolName: "network", accessibilityDescription: "DNSUpdater") {
+            if let img = NSImage(systemSymbolName: "network", accessibilityDescription: "IP Tipster") {
                 img.isTemplate = true; b.image = img
             } else { b.title = "DNS" }
         }
@@ -576,7 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Show IP Log…", action: #selector(showLog), keyEquivalent: "l").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit DNSUpdater", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit IP Tipster", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         refreshMenu()
         logWin.placeAtStartup()
@@ -599,7 +599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu.addItem(withTitle: "Show IP Log…", action: #selector(showLog), keyEquivalent: "l").target = self
         appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit DNSUpdater", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit IP Tipster", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let winItem = NSMenuItem(); main.addItem(winItem)
         let winMenu = NSMenu(title: "Window")
