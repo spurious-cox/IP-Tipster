@@ -1,28 +1,29 @@
 # DNSUpdater
 
-A small Mac app that keeps your Dynu dynamic-DNS hostname pointed at this Mac,
-and keeps a running log of every change to your IP address and to ExpressVPN.
-It replaces DynuUpdater and Dynu's own IP Update Client.
+Dynu Systems Inc. provides a free dynamic DNS service and update client.
+DNSUpdater is a small Mac app that keeps your hostname on that service pointed
+at this Mac, and keeps a running log of every change to your IP address and to
+your VPN.
 
-Version 1.3.1 · macOS 12 or later · Intel and Apple silicon
+Version 1.3.6 · macOS 12 or later · Intel and Apple silicon
 
 ## What it does
 
-* **Checks every 5 minutes** (you can change this in Settings) and tells Dynu
-  your current address. Dynu sees the address the request comes from, so
+* **Checks every 5 minutes** (you can change this in Settings) and tells the
+  service your current address. It sees the address the request comes from, so
   nothing else is needed.
 * **Logs only what changed.** The IP log shows a line when your address
-  changes, when ExpressVPN connects, disconnects or changes location, when
-  ExpressVPN itself is updated, and when an update fails. A check where nothing
-  changed adds nothing.
+  changes, when a VPN connects or disconnects (with location and update
+  details as the VPN service may provide), and when an update fails. A check
+  where nothing changed adds nothing.
 * **Checks right away** when the network changes (a VPN coming up or going
   down), without waiting for the next 5 minutes.
 
 Example log:
 
-    2026-11-13 07:58:30  VPN connected: Mexico  (CHANGED)
-    2026-11-13 08:26:26  185.238.231.86  CHANGED from 185.238.231.105
-    2026-11-13 08:28:55  VPN disconnected  (CHANGED)
+    2026-11-13 07:58:30  CHANGED VPN connected: Mexico
+    2026-11-13 08:26:26  CHANGED from 185.238.231.105 to 185.238.231.86
+    2026-11-13 08:28:55  CHANGED VPN disconnected
 
 ## Using it
 
@@ -31,7 +32,7 @@ current IP and the last check, and has:
 
 * **Update Now**
 * **Show IP Log…**
-* **Settings…** — Dynu username, password, hostname (blank = every hostname on
+* **Settings…** — account username, password, hostname (blank = every hostname on
   the account) and how often to check (1, 2, 5, 10, 15, 30 or 60 minutes).
   Saving also reloads the background updater.
 * **Quit DNSUpdater**
@@ -41,12 +42,12 @@ back.
 
 ### The log window
 
-* **Changes and errors only** is on by default.
+* **Changes and errors only** is on by default. Location changes show in green.
 * The window opens where you last left it, at the size you left it, and
-  refreshes every 3 seconds. The first time it opens centred on the screen
-  ExpressVPN's window is on.
-* **The log is emptied every time the app starts**, including at login. The
-  background 5-minute check never clears it.
+  refreshes every 3 seconds. The first time it opens, it is centered on the
+  screen.
+* **Entries older than 7 days are removed automatically**, when the app starts
+  and whenever a new entry is added.
 * To open it on a particular desktop, go to that desktop and right-click the
   Dock icon → Options → Assign To → This Desktop.
 
@@ -56,13 +57,12 @@ back.
   separate launch agent, `com.timmccoy.dnsupdater.agent`, which runs
   `DNSUpdater --update` on a timer, so updates continue whether or not the app
   is open.
-* ExpressVPN has no command-line tool here, so its state is read from the
-  system: a tunnel (`utun`) interface with an IPv4 address means a VPN is up,
-  and the location is the first entry in ExpressVPN's own recent-locations
-  list. That is the last location you picked, so a location picked but not
-  connected can show. Any other VPN would also count as connected.
-* The password is stored as an MD5 hash, which is what Dynu's update API
-  accepts. IPv4 only.
+* VPN state is read from the system: a tunnel (`utun`) interface with an IPv4
+  address means a VPN is up, whichever VPN service it is. Location and update
+  details are included only when the VPN service provides them, and a location
+  picked but not yet connected may show.
+* The password is stored as an MD5 hash, which is what the service's update
+  API accepts. IPv4 only.
 
 Files are in `~/Library/Application Support/DNSUpdater/`:
 
@@ -86,3 +86,4 @@ The source is `main.swift`; the icon is `AppIcon.icns`, made from
 `DNSUpdaterIcon.png`.
 
 © 2026 Tim McCoy. A personal utility, not published.
+Not affiliated with Dynu Systems Inc.

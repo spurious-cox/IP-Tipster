@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.3.1"
+let appVersion = "1.3.6"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -103,6 +103,17 @@ let stamp: DateFormatter = {
 
 // MARK: history log (the transcript)
 
+/// Drops log lines older than 7 days (lines start with "yyyy-MM-dd HH:mm:ss").
+func purgeOldHistory() {
+    guard let all = try? String(contentsOf: historyURL, encoding: .utf8) else { return }
+    let cutoff = stamp.string(from: Date().addingTimeInterval(-7 * 86400))
+    let lines = all.split(separator: "\n", omittingEmptySubsequences: true)
+    let keep = lines.filter { $0.count < 19 || String($0.prefix(19)) >= cutoff }
+    if keep.count != lines.count {
+        try? (keep.isEmpty ? "" : keep.joined(separator: "\n") + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
+    }
+}
+
 func appendHistory(_ line: String) {
     ensureSupportDir()
     let text = line + "\n"
@@ -111,6 +122,7 @@ func appendHistory(_ line: String) {
     } else {
         try? text.write(to: historyURL, atomically: true, encoding: .utf8)
     }
+    purgeOldHistory()
     // Keep it from growing without limit: past 3 MB keep the newest 15,000 lines.
     if let size = (try? fm.attributesOfItem(atPath: historyURL.path))?[.size] as? Int, size > 3_000_000,
        let all = try? String(contentsOf: historyURL, encoding: .utf8) {
@@ -137,7 +149,7 @@ func migrateOldLog() {
             let ip = String(rest[r.upperBound..<end.lowerBound])
             key = parts[0] + ip
             if key == lastKey { continue }      // both updaters wrote the same second
-            entry = ip == last ? "\(ip)  unchanged" : "\(ip)  CHANGED from \(last.isEmpty ? "?" : last)"
+            entry = ip == last ? "\(ip)  unchanged" : "CHANGED from \(last.isEmpty ? "?" : last) to \(ip)"
             last = ip
         } else {
             if key == lastKey { continue }
@@ -191,14 +203,14 @@ func logVPNEvents(_ state: inout State, now: String) {
     let version = vpnVersionNow()
     func note(_ t: String) { appendHistory("\(now)  \(t)") }
     if !state.vpnVersion.isEmpty, !version.isEmpty, version != state.vpnVersion {
-        note("ExpressVPN updated: \(state.vpnVersion) -> \(version)  (CHANGED)")
+        note("CHANGED ExpressVPN updated: \(state.vpnVersion) -> \(version)")
     }
     if connected && !state.vpnConnected {
-        note("VPN connected: \(location.isEmpty ? "location unknown" : location)  (CHANGED)")
+        note("CHANGED VPN connected: \(location.isEmpty ? "location unknown" : location)")
     } else if !connected && state.vpnConnected {
-        note("VPN disconnected  (CHANGED)")
+        note("CHANGED VPN disconnected")
     } else if connected && location != state.vpnLocation && !location.isEmpty {
-        note("VPN location changed: \(state.vpnLocation.isEmpty ? "?" : state.vpnLocation) -> \(location)  (CHANGED)")
+        note("CHANGED location to \(location)")
     }
     state.vpnConnected = connected
     state.vpnLocation = location
@@ -275,7 +287,7 @@ func runUpdateLocked() -> String {
         if ip != state.lastIP {
             let was = state.lastIP.isEmpty ? "?" : state.lastIP
             state.lastIP = ip; state.lastChange = now
-            return finish("\(ip)  CHANGED from \(was)")
+            return finish("CHANGED from \(was) to \(ip)")
         }
         return finish("\(ip)  unchanged", log: false)     // an unchanged IP is not logged
     case "badauth":  return finish("ERROR: bad authentication (check username/password)")
@@ -414,6 +426,18 @@ final class LogWindow: NSObject {
         let clip = text.enclosingScrollView!.contentView
         let atBottom = clip.bounds.maxY >= (text.frame.height - 24)
         text.string = shown.isEmpty ? "Nothing to show." : shown
+        // Location changes are shown in green.
+        if let storage = text.textStorage {
+            let ns = storage.string as NSString
+            var loc = 0
+            while loc < ns.length {
+                let r = ns.lineRange(for: NSRange(location: loc, length: 0))
+                if ns.substring(with: r).contains("CHANGED location to") {
+                    storage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: r)
+                }
+                loc = NSMaxRange(r)
+            }
+        }
         if atBottom { text.scrollToEndOfDocument(nil) }
     }
 
@@ -513,10 +537,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMainMenu()
         _ = loadConfig()
-        // The log starts empty every time the app starts (the 5-minute background
-        // check, which is a separate run, never clears it).
+        // Entries older than 7 days are dropped at start and on every new entry.
         ensureSupportDir()
-        try? "".write(to: historyURL, atomically: true, encoding: .utf8)
+        purgeOldHistory()
         watchNetwork()                       // brings DynuUpdater's settings and log across, once
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = item.button {
