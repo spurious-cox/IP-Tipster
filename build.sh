@@ -23,7 +23,6 @@ cat > dist/DNSUpdater.app/Contents/Info.plist <<PL
 <key>CFBundleShortVersionString</key><string>$VER</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
-<key>LSUIElement</key><true/>
 <key>NSHumanReadableCopyright</key><string>Personal utility</string>
 </dict></plist>
 PL
