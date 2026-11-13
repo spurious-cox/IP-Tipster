@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.2.2"
+let appVersion = "1.2.3"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -517,6 +517,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         _ = loadConfig()
+        // The log starts empty every time the app starts (the 5-minute background
+        // check, which is a separate run, never clears it).
+        ensureSupportDir()
+        try? "".write(to: historyURL, atomically: true, encoding: .utf8)
         watchNetwork()                       // brings DynuUpdater's settings and log across, once
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = item.button {
