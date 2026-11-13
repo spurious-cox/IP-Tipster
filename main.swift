@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.2.1"
+let appVersion = "1.2.2"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -236,8 +236,8 @@ func runUpdateLocked() -> String {
     if state.lastIP.isEmpty || state.lastIP == "?" { state.lastIP = lastIPInHistory() }
     let now = stamp.string(from: Date())
     logVPNEvents(&state, now: now)
-    func finish(_ text: String) -> String {
-        appendHistory("\(now)  \(text)")
+    func finish(_ text: String, log: Bool = true) -> String {
+        if log { appendHistory("\(now)  \(text)") }
         state.lastCheck = now; state.lastStatus = text
         saveState(state)
         return text
@@ -270,14 +270,14 @@ func runUpdateLocked() -> String {
     case "good", "nochg":
         guard let ip = body.split(separator: " ").dropFirst().first.map(String.init) else {
             // Dynu sometimes answers "nochg" with no address; that is no change.
-            return finish("\(state.lastIP.isEmpty ? "?" : state.lastIP)  unchanged (Dynu gave no address)")
+            return finish("\(state.lastIP.isEmpty ? "?" : state.lastIP)  unchanged", log: false)
         }
         if ip != state.lastIP {
             let was = state.lastIP.isEmpty ? "?" : state.lastIP
             state.lastIP = ip; state.lastChange = now
             return finish("\(ip)  CHANGED from \(was)")
         }
-        return finish("\(ip)  unchanged")
+        return finish("\(ip)  unchanged", log: false)     // an unchanged IP is not logged
     case "badauth":  return finish("ERROR: bad authentication (check username/password)")
     case "notfqdn":  return finish("ERROR: hostname not a valid FQDN")
     case "nohost":   return finish("ERROR: no such hostname on account")
@@ -367,22 +367,27 @@ final class LogWindow: NSObject {
 
     static let frameKey = "DNSUpdaterLogFrame"
 
-    /// On ExpressVPN's screen, at the size (and place, if still on that screen) it was left at.
+    /// Where you left it: the saved frame, wherever that is, as long as it is
+    /// still on a connected screen. The first time (or if that screen is gone)
+    /// it opens centred on ExpressVPN's screen.
     func placeAtStartup() {
-        let screen = expressVPNScreen()
-        let vis = screen.visibleFrame
-        var size = NSSize(width: 780, height: 480)
-        var origin: NSPoint?
         if let saved = UserDefaults.standard.string(forKey: Self.frameKey) {
             let r = NSRectFromString(saved)
-            if r.width >= 340, r.height >= 240 {
-                size = r.size
-                if vis.contains(NSPoint(x: r.midX, y: r.midY)) { origin = r.origin }
+            if r.width >= 340, r.height >= 240,
+               NSScreen.screens.contains(where: { $0.frame.contains(NSPoint(x: r.midX, y: r.midY)) }) {
+                window.setFrame(r, display: true)
+                observeFrame()
+                return
             }
         }
-        size.width = min(size.width, vis.width); size.height = min(size.height, vis.height)
-        let o = origin ?? NSPoint(x: vis.midX - size.width / 2, y: vis.midY - size.height / 2)
-        window.setFrame(NSRect(origin: o, size: size), display: true)
+        let vis = expressVPNScreen().visibleFrame
+        let size = NSSize(width: min(780, vis.width), height: min(480, vis.height))
+        window.setFrame(NSRect(x: vis.midX - size.width / 2, y: vis.midY - size.height / 2,
+                               width: size.width, height: size.height), display: true)
+        observeFrame()
+    }
+
+    func observeFrame() {
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 guard let w = self?.window else { return }
