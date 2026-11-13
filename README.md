@@ -7,6 +7,12 @@ your VPN.
 
 Version 1.6.0 · macOS 12 or later · Intel and Apple silicon
 
+## Download
+
+Get the latest `IP-Tipster-<version>.dmg` from the
+[Releases page](https://github.com/spurious-cox/IP-Tipster/releases/latest), open
+it, and drag **IP Tipster** to Applications. It is signed and notarized by Apple.
+
 ## What it does
 
 * **Checks every 5 minutes** (you can change this in Settings) and tells the
@@ -81,6 +87,7 @@ Files are in `~/Library/Application Support/IP Tipster/`:
 
     ./build.sh              universal app (Intel + Apple silicon), ad-hoc signed, into dist/
     ./build.sh --install    also installs to /Applications and relaunches it
+    ./release.sh            Developer ID sign, make the DMG, notarize and staple it
 
 Modes of the one program:
 
