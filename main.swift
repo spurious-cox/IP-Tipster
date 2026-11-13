@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.1.0"
+let appVersion = "1.2.0"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -305,7 +305,7 @@ func installAgent(minutes: Int) {
 final class LogWindow: NSObject {
     let window: NSWindow
     let text = NSTextView()
-    let changesOnly = NSButton(checkboxWithTitle: "Only changes and errors", target: nil, action: nil)
+    let changesOnly = NSButton(checkboxWithTitle: "Changes and errors only", target: nil, action: nil)
     var timer: Timer?
     var lastShown = ""
 
@@ -315,10 +315,9 @@ final class LogWindow: NSObject {
                           backing: .buffered, defer: false)
         super.init()
         window.title = "DNSUpdater — IP log"
-        window.minSize = NSSize(width: 520, height: 240)
+        window.minSize = NSSize(width: 340, height: 240)
         window.isReleasedWhenClosed = false
-        window.setFrameAutosaveName("DNSUpdaterLog")
-        if !window.setFrameUsingName("DNSUpdaterLog") { window.center() }
+        window.center()
         let content = window.contentView!
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 34, width: 780, height: 446))
         scroll.autoresizingMask = [.width, .height]
@@ -330,15 +329,29 @@ final class LogWindow: NSObject {
         text.textContainer?.widthTracksTextView = true
         scroll.documentView = text
         content.addSubview(scroll)
-        changesOnly.frame = NSRect(x: 12, y: 6, width: 260, height: 22)
+        changesOnly.frame = NSRect(x: 12, y: 6, width: 200, height: 22)
         changesOnly.autoresizingMask = [.maxXMargin, .maxYMargin]
         changesOnly.state = .on
         changesOnly.target = self; changesOnly.action = #selector(refresh)
         content.addSubview(changesOnly)
-        let open = NSButton(title: "Open Log File", target: self, action: #selector(openFile))
-        open.frame = NSRect(x: 780 - 132, y: 4, width: 120, height: 26)
+        let open = NSButton(title: "Open Log", target: self, action: #selector(openFile))
+        open.frame = NSRect(x: 780 - 100, y: 4, width: 90, height: 26)
         open.autoresizingMask = [.minXMargin, .maxYMargin]
         content.addSubview(open)
+    }
+
+    /// ExpressVPN's main window: the same size, place and screen.
+    func placeLikeExpressVPN() {
+        CFPreferencesAppSynchronize("com.expressvpn.ExpressVPN" as CFString)
+        guard let str = CFPreferencesCopyAppValue("NSWindow Frame MainWindow" as CFString,
+                                                  "com.expressvpn.ExpressVPN" as CFString) as? String else { return }
+        let n = str.split(separator: " ").compactMap { Double($0) }
+        guard n.count >= 4 else { return }
+        let rect = NSRect(x: n[0], y: n[1], width: n[2], height: n[3])
+        // Only if that spot is still on a connected screen.
+        if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) {
+            window.setFrame(rect, display: true)
+        }
     }
 
     func show() {
@@ -480,6 +493,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Quit DNSUpdater", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         refreshMenu()
+        logWin.placeLikeExpressVPN()
+        logWin.show()                          // shown at login, where ExpressVPN's window is
     }
 
     func menuWillOpen(_ menu: NSMenu) { refreshMenu() }
