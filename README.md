@@ -5,7 +5,7 @@ IP Tipster is a small Mac app that keeps your hostname on that service pointed
 at this Mac, and keeps a running log of every change to your IP address and to
 your VPN.
 
-Version 1.5.0 · macOS 12 or later · Intel and Apple silicon
+Version 1.6.0 · macOS 12 or later · Intel and Apple silicon
 
 ## What it does
 
@@ -23,6 +23,7 @@ Example log:
 
     2026-11-13 07:58:30  CHANGED VPN connected: Mexico
     2026-11-13 08:26:26  CHANGED from 185.238.231.105 to 185.238.231.86
+    2026-11-13 08:27:10  CHANGED IPv6 from 2001:db8::1 to 2001:db8::2
     2026-11-13 08:28:55  CHANGED VPN disconnected
 
 ## Using it
@@ -63,7 +64,11 @@ app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
   details are included only when the VPN service provides them, and a location
   picked but not yet connected may show.
 * The password is stored as an MD5 hash, which is what the service's update
-  API accepts. IPv4 only.
+  API accepts.
+* IPv6 is supported. If this Mac has a public IPv6 address, it is found with an
+  IPv6-only lookup (`api6.ipify.org`, a free third-party echo service), sent with
+  the update, and logged as `CHANGED IPv6 from <old> to <new>`. With no IPv6
+  connection nothing is looked up and no IPv6 lines appear.
 
 Files are in `~/Library/Application Support/IP Tipster/`:
 

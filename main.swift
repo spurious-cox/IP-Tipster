@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.5.0"
+let appVersion = "1.6.0"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/IP Tipster")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -43,12 +43,13 @@ struct Config: Codable {
 }
 
 struct State: Codable {
-    var lastIP = ""; var lastChange = ""; var lastCheck = ""; var lastStatus = ""
+    var lastIP = ""; var lastIPv6 = ""; var lastChange = ""; var lastCheck = ""; var lastStatus = ""
     var vpnConnected = false; var vpnLocation = ""; var vpnVersion = ""
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         lastIP = try c.decodeIfPresent(String.self, forKey: .lastIP) ?? ""
+        lastIPv6 = try c.decodeIfPresent(String.self, forKey: .lastIPv6) ?? ""
         lastChange = try c.decodeIfPresent(String.self, forKey: .lastChange) ?? ""
         lastCheck = try c.decodeIfPresent(String.self, forKey: .lastCheck) ?? ""
         lastStatus = try c.decodeIfPresent(String.self, forKey: .lastStatus) ?? ""
@@ -56,7 +57,7 @@ struct State: Codable {
         vpnLocation = try c.decodeIfPresent(String.self, forKey: .vpnLocation) ?? ""
         vpnVersion = try c.decodeIfPresent(String.self, forKey: .vpnVersion) ?? ""
     }
-    enum Keys: String, CodingKey { case lastIP, lastChange, lastCheck, lastStatus, vpnConnected, vpnLocation, vpnVersion }
+    enum Keys: String, CodingKey { case lastIP, lastIPv6, lastChange, lastCheck, lastStatus, vpnConnected, vpnLocation, vpnVersion }
 }
 
 func ensureSupportDir() {
@@ -235,9 +236,47 @@ func lastIPInHistory() -> String {
     guard let all = try? String(contentsOf: historyURL, encoding: .utf8) else { return "" }
     for line in all.split(separator: "\n").reversed() {
         let f = line.components(separatedBy: "  ")
-        if f.count >= 2, f[1].range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil { return f[1] }
+        guard f.count >= 2 else { continue }
+        let msg = f[1...].joined(separator: "  ")
+        if let r = msg.range(of: #"(\d{1,3}(\.\d{1,3}){3})$"#, options: .regularExpression),
+           msg.hasPrefix("CHANGED from ") || msg == String(msg[r]) { return String(msg[r]) }
     }
     return ""
+}
+
+// MARK: IPv6
+
+/// True when any interface has a global-scope IPv6 address (2000::/3).
+func hasGlobalIPv6() -> Bool {
+    var list: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&list) == 0, let first = list else { return false }
+    defer { freeifaddrs(list) }
+    var p: UnsafeMutablePointer<ifaddrs>? = first
+    while let a = p {
+        if let sa = a.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET6) {
+            let first = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr.__u6_addr.__u6_addr8.0 }
+            if first & 0xE0 == 0x20 { return true }
+        }
+        p = a.pointee.ifa_next
+    }
+    return false
+}
+
+/// This Mac's public IPv6 address, or "" when there is none. Asked of an IPv6-only
+/// echo service, so it answers only over IPv6.
+func publicIPv6() -> String {
+    guard hasGlobalIPv6(), let url = URL(string: "https://api6.ipify.org") else { return "" }
+    var req = URLRequest(url: url, timeoutInterval: 8)
+    req.setValue("IPTipster/\(appVersion) (macOS)", forHTTPHeaderField: "User-Agent")
+    var out = ""
+    let sem = DispatchSemaphore(value: 0)
+    URLSession.shared.dataTask(with: req) { data, _, _ in
+        out = String(data: data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        sem.signal()
+    }.resume()
+    _ = sem.wait(timeout: .now() + 12)
+    let ok = out.contains(":") && out.range(of: #"^[0-9a-fA-F:.]+$"#, options: .regularExpression) != nil
+    return ok ? out : ""
 }
 
 // MARK: the update
@@ -262,7 +301,12 @@ func runUpdateLocked() -> String {
         return finish("ERROR: no credentials configured (open Settings)")
     }
     var comps = URLComponents(string: "https://api.dynu.com/nic/update")!
-    if !cfg.hostname.isEmpty { comps.queryItems = [URLQueryItem(name: "hostname", value: cfg.hostname)] }
+    let ip6 = publicIPv6()
+    let ip6Local = hasGlobalIPv6()
+    var items: [URLQueryItem] = []
+    if !cfg.hostname.isEmpty { items.append(URLQueryItem(name: "hostname", value: cfg.hostname)) }
+    if !ip6.isEmpty { items.append(URLQueryItem(name: "myipv6", value: ip6)) }
+    if !items.isEmpty { comps.queryItems = items }
     var req = URLRequest(url: comps.url!, timeoutInterval: 20)
     let auth = Data("\(cfg.username):\(cfg.passwordMD5)".utf8).base64EncodedString()
     req.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
@@ -284,16 +328,27 @@ func runUpdateLocked() -> String {
     let word = body.split(separator: " ").first.map(String.init) ?? body
     switch word {
     case "good", "nochg":
-        guard let ip = body.split(separator: " ").dropFirst().first.map(String.init) else {
-            // Dynu sometimes answers "nochg" with no address; that is no change.
-            return finish("\(state.lastIP.isEmpty ? "?" : state.lastIP)  unchanged", log: false)
-        }
-        if ip != state.lastIP {
+        let toks = body.split(whereSeparator: { $0 == " " || $0 == "," }).dropFirst().map(String.init)
+        let ip4 = toks.first(where: { !$0.contains(":") })
+        var changes: [String] = []
+        if let ip = ip4, ip != state.lastIP {
             let was = state.lastIP.isEmpty ? "?" : state.lastIP
             state.lastIP = ip; state.lastChange = now
-            return finish("CHANGED from \(was) to \(ip)")
+            changes.append("CHANGED from \(was) to \(ip)")
         }
-        return finish("\(ip)  unchanged", log: false)     // an unchanged IP is not logged
+        // IPv6: our own lookup is the truth; if it failed but the Mac still has an IPv6
+        // address, keep the last one rather than guess.
+        var new6 = ip6.isEmpty ? (toks.first(where: { $0.contains(":") }) ?? "") : ip6
+        if new6.isEmpty && ip6Local { new6 = state.lastIPv6 }
+        if new6 != state.lastIPv6 {
+            changes.append("CHANGED IPv6 from \(state.lastIPv6.isEmpty ? "none" : state.lastIPv6) to \(new6.isEmpty ? "none" : new6)")
+            state.lastIPv6 = new6; state.lastChange = now
+        }
+        if changes.isEmpty {
+            return finish("\(state.lastIP.isEmpty ? "?" : state.lastIP)  unchanged", log: false)   // nothing changed, nothing logged
+        }
+        for c in changes.dropLast() { appendHistory("\(now)  \(c)") }
+        return finish(changes.last!)
     case "badauth":  return finish("ERROR: bad authentication (check username/password)")
     case "notfqdn":  return finish("ERROR: hostname not a valid FQDN")
     case "nohost":   return finish("ERROR: no such hostname on account")
@@ -527,6 +582,7 @@ final class SettingsWindow: NSObject {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var item: NSStatusItem!
     let ipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    let ip6Item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let checkItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let logWin = LogWindow()
     lazy var settingsWin = SettingsWindow { [weak self] in self?.refreshMenu() }
@@ -548,7 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }, &ctx) else { return }
         SCDynamicStoreSetNotificationKeys(st, nil,
-            ["State:/Network/Global/IPv4", "State:/Network/Interface/.*/IPv4"] as CFArray)
+            ["State:/Network/Global/IPv4", "State:/Network/Interface/.*/IPv4", "State:/Network/Global/IPv6", "State:/Network/Interface/.*/IPv6"] as CFArray)
         if let src = SCDynamicStoreCreateRunLoopSource(nil, st, 0) {
             CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
         }
@@ -569,8 +625,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else { b.title = "DNS" }
         }
         let menu = NSMenu(); menu.delegate = self
-        ipItem.isEnabled = false; checkItem.isEnabled = false
-        menu.addItem(ipItem); menu.addItem(checkItem)
+        ipItem.isEnabled = false; ip6Item.isEnabled = false; checkItem.isEnabled = false
+        menu.addItem(ipItem); menu.addItem(ip6Item); menu.addItem(checkItem)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Update Now", action: #selector(updateNow), keyEquivalent: "u").target = self
         menu.addItem(withTitle: "Show IP Log…", action: #selector(showLog), keyEquivalent: "l").target = self
@@ -613,6 +669,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refreshMenu() {
         let s = loadState()
         ipItem.title = s.lastIP.isEmpty ? "IP: not yet known" : "IP: \(s.lastIP)"
+        ip6Item.title = "IPv6: \(s.lastIPv6)"
+        ip6Item.isHidden = s.lastIPv6.isEmpty
         checkItem.title = s.lastCheck.isEmpty ? "No update yet" : "Last check: \(s.lastCheck)  —  \(s.lastStatus.hasPrefix("ERROR") ? s.lastStatus : "ok")"
         item.button?.toolTip = ipItem.title
     }
