@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.2.0"
+let appVersion = "1.2.1"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -214,6 +214,16 @@ func withLock<T>(_ body: () -> T) -> T {
     return body()
 }
 
+/// The newest IP address in the log, for when the saved state has lost it.
+func lastIPInHistory() -> String {
+    guard let all = try? String(contentsOf: historyURL, encoding: .utf8) else { return "" }
+    for line in all.split(separator: "\n").reversed() {
+        let f = line.components(separatedBy: "  ")
+        if f.count >= 2, f[1].range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil { return f[1] }
+    }
+    return ""
+}
+
 // MARK: the update
 
 /// One update call. Returns the line for the log and whether it was a success.
@@ -223,6 +233,7 @@ func runUpdate() -> String { withLock { runUpdateLocked() } }
 func runUpdateLocked() -> String {
     let cfg = loadConfig()
     var state = loadState()
+    if state.lastIP.isEmpty || state.lastIP == "?" { state.lastIP = lastIPInHistory() }
     let now = stamp.string(from: Date())
     logVPNEvents(&state, now: now)
     func finish(_ text: String) -> String {
@@ -340,17 +351,43 @@ final class LogWindow: NSObject {
         content.addSubview(open)
     }
 
-    /// ExpressVPN's main window: the same size, place and screen.
-    func placeLikeExpressVPN() {
+    /// The screen ExpressVPN's main window is on (its saved frame), else the main screen.
+    func expressVPNScreen() -> NSScreen {
         CFPreferencesAppSynchronize("com.expressvpn.ExpressVPN" as CFString)
-        guard let str = CFPreferencesCopyAppValue("NSWindow Frame MainWindow" as CFString,
-                                                  "com.expressvpn.ExpressVPN" as CFString) as? String else { return }
-        let n = str.split(separator: " ").compactMap { Double($0) }
-        guard n.count >= 4 else { return }
-        let rect = NSRect(x: n[0], y: n[1], width: n[2], height: n[3])
-        // Only if that spot is still on a connected screen.
-        if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) {
-            window.setFrame(rect, display: true)
+        if let str = CFPreferencesCopyAppValue("NSWindow Frame MainWindow" as CFString,
+                                               "com.expressvpn.ExpressVPN" as CFString) as? String {
+            let n = str.split(separator: " ").compactMap { Double($0) }
+            if n.count >= 4 {
+                let centre = NSPoint(x: n[0] + n[2] / 2, y: n[1] + n[3] / 2)
+                if let s = NSScreen.screens.first(where: { $0.frame.contains(centre) || $0.visibleFrame.contains(centre) }) { return s }
+            }
+        }
+        return NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    static let frameKey = "DNSUpdaterLogFrame"
+
+    /// On ExpressVPN's screen, at the size (and place, if still on that screen) it was left at.
+    func placeAtStartup() {
+        let screen = expressVPNScreen()
+        let vis = screen.visibleFrame
+        var size = NSSize(width: 780, height: 480)
+        var origin: NSPoint?
+        if let saved = UserDefaults.standard.string(forKey: Self.frameKey) {
+            let r = NSRectFromString(saved)
+            if r.width >= 340, r.height >= 240 {
+                size = r.size
+                if vis.contains(NSPoint(x: r.midX, y: r.midY)) { origin = r.origin }
+            }
+        }
+        size.width = min(size.width, vis.width); size.height = min(size.height, vis.height)
+        let o = origin ?? NSPoint(x: vis.midX - size.width / 2, y: vis.midY - size.height / 2)
+        window.setFrame(NSRect(origin: o, size: size), display: true)
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                guard let w = self?.window else { return }
+                UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: LogWindow.frameKey)
+            }
         }
     }
 
@@ -493,8 +530,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Quit DNSUpdater", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         refreshMenu()
-        logWin.placeLikeExpressVPN()
-        logWin.show()                          // shown at login, where ExpressVPN's window is
+        logWin.placeAtStartup()
+        logWin.show()                          // shown at login, on ExpressVPN's screen
     }
 
     func menuWillOpen(_ menu: NSMenu) { refreshMenu() }
