@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.3.0"
+let appVersion = "1.3.1"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -345,10 +345,6 @@ final class LogWindow: NSObject {
         changesOnly.state = .on
         changesOnly.target = self; changesOnly.action = #selector(refresh)
         content.addSubview(changesOnly)
-        let open = NSButton(title: "Open Log", target: self, action: #selector(openFile))
-        open.frame = NSRect(x: 780 - 100, y: 4, width: 90, height: 26)
-        open.autoresizingMask = [.minXMargin, .maxYMargin]
-        content.addSubview(open)
     }
 
     /// The screen ExpressVPN's main window is on (its saved frame), else the main screen.
@@ -421,7 +417,6 @@ final class LogWindow: NSObject {
         if atBottom { text.scrollToEndOfDocument(nil) }
     }
 
-    @objc func openFile() { NSWorkspace.shared.open(historyURL) }
 }
 
 final class SettingsWindow: NSObject {
