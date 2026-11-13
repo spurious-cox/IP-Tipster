@@ -5,8 +5,10 @@
 //   DNSUpdater --install-agent   write and load the launch agent
 import Cocoa
 import CryptoKit
+import SystemConfiguration
+import Darwin
 
-let appVersion = "1.0.0"
+let appVersion = "1.1.0"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -36,7 +38,22 @@ struct Config: Codable {
     enum Keys: String, CodingKey { case username, passwordMD5, hostname, intervalMinutes }
 }
 
-struct State: Codable { var lastIP = ""; var lastChange = ""; var lastCheck = ""; var lastStatus = "" }
+struct State: Codable {
+    var lastIP = ""; var lastChange = ""; var lastCheck = ""; var lastStatus = ""
+    var vpnConnected = false; var vpnLocation = ""; var vpnVersion = ""
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        lastIP = try c.decodeIfPresent(String.self, forKey: .lastIP) ?? ""
+        lastChange = try c.decodeIfPresent(String.self, forKey: .lastChange) ?? ""
+        lastCheck = try c.decodeIfPresent(String.self, forKey: .lastCheck) ?? ""
+        lastStatus = try c.decodeIfPresent(String.self, forKey: .lastStatus) ?? ""
+        vpnConnected = try c.decodeIfPresent(Bool.self, forKey: .vpnConnected) ?? false
+        vpnLocation = try c.decodeIfPresent(String.self, forKey: .vpnLocation) ?? ""
+        vpnVersion = try c.decodeIfPresent(String.self, forKey: .vpnVersion) ?? ""
+    }
+    enum Keys: String, CodingKey { case lastIP, lastChange, lastCheck, lastStatus, vpnConnected, vpnLocation, vpnVersion }
+}
 
 func ensureSupportDir() {
     try? fm.createDirectory(at: supportDir, withIntermediateDirectories: true)
@@ -138,14 +155,76 @@ func migrateOldLog() {
     }
 }
 
+// MARK: ExpressVPN
+
+/// ExpressVPN has no command-line tool here, so its state is read from the system:
+/// a tunnel (utun) interface that has an IPv4 address means a VPN is up, and the
+/// location is the one ExpressVPN last picked (first of its recentLocations).
+func vpnConnectedNow() -> Bool {
+    var list: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&list) == 0, let first = list else { return false }
+    defer { freeifaddrs(list) }
+    var p: UnsafeMutablePointer<ifaddrs>? = first
+    while let cur = p {
+        let name = String(cString: cur.pointee.ifa_name)
+        if name.hasPrefix("utun"), let sa = cur.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) { return true }
+        p = cur.pointee.ifa_next
+    }
+    return false
+}
+
+func vpnLocationNow() -> String {
+    CFPreferencesAppSynchronize("com.expressvpn.ExpressVPN" as CFString)
+    let v = CFPreferencesCopyAppValue("recentLocations" as CFString, "com.expressvpn.ExpressVPN" as CFString)
+    return ((v as? [String])?.first) ?? ""
+}
+
+func vpnVersionNow() -> String {
+    (Bundle(path: "/Applications/ExpressVPN.app")?.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+}
+
+/// Write a line to the log when ExpressVPN connects, disconnects, changes
+/// location or is updated since the last look.
+func logVPNEvents(_ state: inout State, now: String) {
+    let connected = vpnConnectedNow()
+    let location = vpnLocationNow()
+    let version = vpnVersionNow()
+    func note(_ t: String) { appendHistory("\(now)  \(t)") }
+    if !state.vpnVersion.isEmpty, !version.isEmpty, version != state.vpnVersion {
+        note("ExpressVPN updated: \(state.vpnVersion) -> \(version)  (CHANGED)")
+    }
+    if connected && !state.vpnConnected {
+        note("VPN connected: \(location.isEmpty ? "location unknown" : location)  (CHANGED)")
+    } else if !connected && state.vpnConnected {
+        note("VPN disconnected  (CHANGED)")
+    } else if connected && location != state.vpnLocation && !location.isEmpty {
+        note("VPN location changed: \(state.vpnLocation.isEmpty ? "?" : state.vpnLocation) -> \(location)  (CHANGED)")
+    }
+    state.vpnConnected = connected
+    state.vpnLocation = location
+    if !version.isEmpty { state.vpnVersion = version }
+}
+
+/// One process at a time: the menu-bar app and the launch agent can both check.
+func withLock<T>(_ body: () -> T) -> T {
+    ensureSupportDir()
+    let fd = open(supportDir.appendingPathComponent("lock").path, O_CREAT | O_RDWR, 0o600)
+    if fd >= 0 { flock(fd, LOCK_EX) }
+    defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
+    return body()
+}
+
 // MARK: the update
 
 /// One update call. Returns the line for the log and whether it was a success.
 @discardableResult
-func runUpdate() -> String {
+func runUpdate() -> String { withLock { runUpdateLocked() } }
+
+func runUpdateLocked() -> String {
     let cfg = loadConfig()
     var state = loadState()
     let now = stamp.string(from: Date())
+    logVPNEvents(&state, now: now)
     func finish(_ text: String) -> String {
         appendHistory("\(now)  \(text)")
         state.lastCheck = now; state.lastStatus = text
@@ -178,7 +257,10 @@ func runUpdate() -> String {
     let word = body.split(separator: " ").first.map(String.init) ?? body
     switch word {
     case "good", "nochg":
-        let ip = body.split(separator: " ").dropFirst().first.map(String.init) ?? "?"
+        guard let ip = body.split(separator: " ").dropFirst().first.map(String.init) else {
+            // Dynu sometimes answers "nochg" with no address; that is no change.
+            return finish("\(state.lastIP.isEmpty ? "?" : state.lastIP)  unchanged (Dynu gave no address)")
+        }
         if ip != state.lastIP {
             let was = state.lastIP.isEmpty ? "?" : state.lastIP
             state.lastIP = ip; state.lastChange = now
@@ -354,8 +436,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let logWin = LogWindow()
     lazy var settingsWin = SettingsWindow { [weak self] in self?.refreshMenu() }
 
+    var store: SCDynamicStore?
+    var debounce: Timer?
+
+    /// React to network changes (a VPN coming up or going down, a new location)
+    /// without waiting for the next scheduled check.
+    func watchNetwork() {
+        var ctx = SCDynamicStoreContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+                                        retain: nil, release: nil, copyDescription: nil)
+        guard let st = SCDynamicStoreCreate(nil, "DNSUpdater" as CFString, { _, _, info in
+            guard let info = info else { return }
+            let me = Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue()
+            DispatchQueue.main.async {
+                me.debounce?.invalidate()
+                me.debounce = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in me.updateNow() }
+            }
+        }, &ctx) else { return }
+        SCDynamicStoreSetNotificationKeys(st, nil,
+            ["State:/Network/Global/IPv4", "State:/Network/Interface/.*/IPv4"] as CFArray)
+        if let src = SCDynamicStoreCreateRunLoopSource(nil, st, 0) {
+            CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        }
+        store = st
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
-        _ = loadConfig()                       // brings DynuUpdater's settings and log across, once
+        _ = loadConfig()
+        watchNetwork()                       // brings DynuUpdater's settings and log across, once
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = item.button {
             if let img = NSImage(systemSymbolName: "network", accessibilityDescription: "DNSUpdater") {
