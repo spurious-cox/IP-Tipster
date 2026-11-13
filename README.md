@@ -5,7 +5,7 @@ DNSUpdater is a small Mac app that keeps your hostname on that service pointed
 at this Mac, and keeps a running log of every change to your IP address and to
 your VPN.
 
-Version 1.3.6 · macOS 12 or later · Intel and Apple silicon
+Version 1.4.0 · macOS 12 or later · Intel and Apple silicon
 
 ## What it does
 
@@ -33,12 +33,13 @@ current IP and the last check, and has:
 * **Update Now**
 * **Show IP Log…**
 * **Settings…** — account username, password, hostname (blank = every hostname on
-  the account) and how often to check (1, 2, 5, 10, 15, 30 or 60 minutes).
-  Saving also reloads the background updater.
+  the account), how often to check (1, 2, 5, 10, 15, 30 or 60 minutes), whether
+  the log window opens at startup, and whether there is a Dock icon (off = menu
+  bar only). Saving also reloads the background updater.
 * **Quit DNSUpdater**
 
-Closing the log window does not quit the app; click the Dock icon to bring it
-back.
+The log window has a **Hide** button; closing or hiding it does not quit the
+app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
 
 ### The log window
 

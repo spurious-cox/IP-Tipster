@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.3.6"
+let appVersion = "1.4.0"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/DNSUpdater")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -26,6 +26,8 @@ struct Config: Codable {
     var passwordMD5 = ""
     var hostname = ""          // blank = every hostname on the account
     var intervalMinutes = 5
+    var showLogAtLaunch = true
+    var showDockIcon = true
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -34,8 +36,10 @@ struct Config: Codable {
         passwordMD5 = try c.decodeIfPresent(String.self, forKey: .passwordMD5) ?? ""
         hostname = try c.decodeIfPresent(String.self, forKey: .hostname) ?? ""
         intervalMinutes = try c.decodeIfPresent(Int.self, forKey: .intervalMinutes) ?? 5
+        showLogAtLaunch = try c.decodeIfPresent(Bool.self, forKey: .showLogAtLaunch) ?? true
+        showDockIcon = try c.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? true
     }
-    enum Keys: String, CodingKey { case username, passwordMD5, hostname, intervalMinutes }
+    enum Keys: String, CodingKey { case username, passwordMD5, hostname, intervalMinutes, showLogAtLaunch, showDockIcon }
 }
 
 struct State: Codable {
@@ -357,6 +361,11 @@ final class LogWindow: NSObject {
         changesOnly.state = .on
         changesOnly.target = self; changesOnly.action = #selector(refresh)
         content.addSubview(changesOnly)
+        let hide = NSButton(title: "Hide", target: self, action: #selector(hideWindow))
+        hide.bezelStyle = .rounded
+        hide.frame = NSRect(x: 780 - 12 - 80, y: 3, width: 80, height: 28)
+        hide.autoresizingMask = [.minXMargin, .maxYMargin]
+        content.addSubview(hide)
     }
 
     /// The screen ExpressVPN's main window is on (its saved frame), else the main screen.
@@ -414,6 +423,8 @@ final class LogWindow: NSObject {
         }
     }
 
+    @objc func hideWindow() { window.orderOut(nil) }
+
     @objc func refresh() {
         guard let all = try? String(contentsOf: historyURL, encoding: .utf8) else {
             text.string = "No updates recorded yet."; return
@@ -447,12 +458,14 @@ final class SettingsWindow: NSObject {
     let window: NSWindow
     let user = NSTextField(), pass = NSSecureTextField(), host = NSTextField()
     let interval = NSPopUpButton()
+    let showLogBox = NSButton(checkboxWithTitle: "Show the IP log window when the app starts", target: nil, action: nil)
+    let dockBox = NSButton(checkboxWithTitle: "Show a Dock icon (off = menu bar only)", target: nil, action: nil)
     let onSave: () -> Void
     static let choices = [1, 2, 5, 10, 15, 30, 60]
 
     init(onSave: @escaping () -> Void) {
         self.onSave = onSave
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 230),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 290),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
         super.init()
         window.title = "DNSUpdater Settings"
@@ -463,13 +476,16 @@ final class SettingsWindow: NSObject {
             field.frame = NSRect(x: 134, y: y, width: 270, height: 24)
             window.contentView!.addSubview(l); window.contentView!.addSubview(field)
         }
-        row("Dynu username", user, 184)
-        row("Password", pass, 150)
-        row("Hostname", host, 116)
+        row("Account username", user, 244)
+        row("Password", pass, 210)
+        row("Hostname", host, 176)
         host.placeholderString = "blank = all hostnames"
         pass.placeholderString = "leave blank to keep the saved one"
-        row("Check every", interval, 82)
+        row("Check every", interval, 142)
         interval.addItems(withTitles: Self.choices.map { $0 == 1 ? "1 minute" : "\($0) minutes" })
+        showLogBox.frame = NSRect(x: 134, y: 108, width: 280, height: 20)
+        dockBox.frame = NSRect(x: 134, y: 82, width: 280, height: 20)
+        window.contentView!.addSubview(showLogBox); window.contentView!.addSubview(dockBox)
         let save = NSButton(title: "Save", target: self, action: #selector(save))
         save.keyEquivalent = "\r"; save.frame = NSRect(x: 316, y: 16, width: 88, height: 30)
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancel))
@@ -482,6 +498,8 @@ final class SettingsWindow: NSObject {
         user.stringValue = c.username; pass.stringValue = ""; host.stringValue = c.hostname
         let idx = Self.choices.firstIndex(of: c.intervalMinutes) ?? 2
         interval.selectItem(at: idx)
+        showLogBox.state = c.showLogAtLaunch ? .on : .off
+        dockBox.state = c.showDockIcon ? .on : .off
         window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -493,7 +511,10 @@ final class SettingsWindow: NSObject {
         c.hostname = host.stringValue.trimmingCharacters(in: .whitespaces)
         if !pass.stringValue.isEmpty { c.passwordMD5 = md5(pass.stringValue) }
         c.intervalMinutes = Self.choices[max(0, interval.indexOfSelectedItem)]
+        c.showLogAtLaunch = showLogBox.state == .on
+        c.showDockIcon = dockBox.state == .on
         saveConfig(c)
+        NSApp.setActivationPolicy(c.showDockIcon ? .regular : .accessory)
         installAgent(minutes: c.intervalMinutes)
         window.orderOut(nil)
         onSave()
@@ -559,7 +580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         refreshMenu()
         logWin.placeAtStartup()
-        logWin.show()                          // shown at login, on ExpressVPN's screen
+        if loadConfig().showLogAtLaunch { logWin.show() }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refreshMenu() }
@@ -619,6 +640,7 @@ if args.contains("--update") {
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
-    app.setActivationPolicy(.regular)       // a Dock icon, so macOS can assign the app to a desktop
+    // A Dock icon lets macOS assign the app to a desktop; Settings can turn it off.
+    app.setActivationPolicy(loadConfig().showDockIcon ? .regular : .accessory)
     app.run()
 }
