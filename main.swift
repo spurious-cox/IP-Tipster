@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.6.0"
+let appVersion = "1.6.1"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/IP Tipster")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -405,6 +405,7 @@ final class LogWindow: NSObject {
         scroll.autoresizingMask = [.width, .height]
         scroll.hasVerticalScroller = true
         text.isEditable = false
+        text.isSelectable = true            // so lines can be selected and copied (Cmd-C)
         text.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         text.autoresizingMask = [.width]
         text.isVerticallyResizable = true
@@ -416,6 +417,11 @@ final class LogWindow: NSObject {
         changesOnly.state = .on
         changesOnly.target = self; changesOnly.action = #selector(refresh)
         content.addSubview(changesOnly)
+        let copy = NSButton(title: "Copy", target: self, action: #selector(copyText))
+        copy.bezelStyle = .rounded
+        copy.frame = NSRect(x: 780 - 12 - 80 - 8 - 80, y: 3, width: 80, height: 28)
+        copy.autoresizingMask = [.minXMargin, .maxYMargin]
+        content.addSubview(copy)
         let hide = NSButton(title: "Hide", target: self, action: #selector(hideWindow))
         hide.bezelStyle = .rounded
         hide.frame = NSRect(x: 780 - 12 - 80, y: 3, width: 80, height: 28)
@@ -478,9 +484,19 @@ final class LogWindow: NSObject {
         }
     }
 
+    /// Copies the selected text, or the whole log if nothing is selected.
+    @objc func copyText() {
+        let sel = text.selectedRange()
+        let str = text.string as NSString
+        let out = sel.length > 0 ? str.substring(with: sel) : text.string
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(out, forType: .string)
+    }
+
     @objc func hideWindow() { window.orderOut(nil) }
 
     @objc func refresh() {
+        if text.selectedRange().length > 0 { return }      // leave a selection alone while it is being copied
         guard let all = try? String(contentsOf: historyURL, encoding: .utf8) else {
             text.string = "No updates recorded yet."; return
         }
@@ -492,13 +508,16 @@ final class LogWindow: NSObject {
         let clip = text.enclosingScrollView!.contentView
         let atBottom = clip.bounds.maxY >= (text.frame.height - 24)
         text.string = shown.isEmpty ? "Nothing to show." : shown
-        // Location changes are shown in green.
+        // VPN connects and location changes are green; VPN disconnects are red.
         if let storage = text.textStorage {
             let ns = storage.string as NSString
             var loc = 0
             while loc < ns.length {
                 let r = ns.lineRange(for: NSRange(location: loc, length: 0))
-                if ns.substring(with: r).contains("CHANGED location to") {
+                let ln = ns.substring(with: r)
+                if ln.contains("CHANGED VPN disconnected") {
+                    storage.addAttribute(.foregroundColor, value: NSColor.systemRed, range: r)
+                } else if ln.contains("CHANGED location to") || ln.contains("CHANGED VPN connected") {
                     storage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: r)
                 }
                 loc = NSMaxRange(r)

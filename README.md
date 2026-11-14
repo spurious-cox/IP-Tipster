@@ -5,7 +5,7 @@ IP Tipster is a small Mac app that keeps your hostname on that service pointed
 at this Mac, and keeps a running log of every change to your IP address and to
 your VPN.
 
-Version 1.6.0 · macOS 12 or later · Intel and Apple silicon
+Version 1.6.1 · macOS 12 or later · Intel and Apple silicon
 
 ## Download
 
@@ -50,7 +50,8 @@ app. Bring it back from the Dock icon or **Show IP Log…** in the menu bar.
 
 ### The log window
 
-* **Changes and errors only** is on by default. Location changes show in green.
+* **Changes and errors only** is on by default. Location changes and VPN connects show in green; VPN disconnects show in red. Select text and press Cmd-C,
+  or use **Copy** (copies the selection, or the whole log if nothing is selected).
 * The window opens where you last left it, at the size you left it, and
   refreshes every 3 seconds. The first time it opens, it is centered on the
   screen.
