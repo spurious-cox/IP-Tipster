@@ -5,7 +5,7 @@ IP Tipster is a small Mac app that keeps your hostname on that service pointed
 at this Mac, and keeps a running log of every change to your IP address and to
 your VPN.
 
-Version 1.6.1 · macOS 12 or later · Intel and Apple silicon
+Version 1.6.2 · macOS 12 or later · Intel and Apple silicon
 
 ## Download
 

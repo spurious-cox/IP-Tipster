@@ -8,7 +8,7 @@ import CryptoKit
 import SystemConfiguration
 import Darwin
 
-let appVersion = "1.6.1"
+let appVersion = "1.6.2"
 let home = FileManager.default.homeDirectoryForCurrentUser
 let supportDir = home.appendingPathComponent("Library/Application Support/IP Tipster")
 let oldSupportDir = home.appendingPathComponent("Library/Application Support/DynuUpdater")
@@ -511,6 +511,8 @@ final class LogWindow: NSObject {
         // VPN connects and location changes are green; VPN disconnects are red.
         if let storage = text.textStorage {
             let ns = storage.string as NSString
+            // Setting .string inherits the first character's attributes, so reset every line to the default color first.
+            storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: NSRange(location: 0, length: ns.length))
             var loc = 0
             while loc < ns.length {
                 let r = ns.lineRange(for: NSRange(location: loc, length: 0))
